@@ -1,0 +1,8 @@
+py-algorand-sdk==2.6.0
+fastapi==0.104.1
+uvicorn==0.24.0
+python-dotenv==1.0.0
+pydantic==2.4.2
+stripe==7.11.0
+pyteal==0.23.0
+algosdk==2.7.0 

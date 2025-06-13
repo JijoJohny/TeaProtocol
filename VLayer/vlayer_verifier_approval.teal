@@ -1,0 +1,96 @@
+#pragma version 6
+txn ApplicationID
+int 0
+==
+bnz main_l16
+txn OnCompletion
+int DeleteApplication
+==
+bnz main_l15
+txn OnCompletion
+int UpdateApplication
+==
+bnz main_l14
+txn OnCompletion
+int CloseOut
+==
+bnz main_l13
+txn OnCompletion
+int OptIn
+==
+bnz main_l12
+txna ApplicationArgs 0
+byte "verify_intent"
+==
+bnz main_l11
+txna ApplicationArgs 0
+byte "update_collateral"
+==
+bnz main_l10
+txna ApplicationArgs 0
+byte "cancel_intent"
+==
+bnz main_l9
+err
+main_l9:
+int 0
+byte "user_intent"
+app_local_get
+byte ""
+!=
+assert
+int 0
+byte "user_intent"
+byte ""
+app_local_put
+int 0
+byte "user_collateral"
+int 0
+app_local_put
+int 1
+return
+main_l10:
+int 0
+byte "user_intent"
+app_local_get
+byte ""
+!=
+assert
+int 0
+byte "user_collateral"
+byte "amount"
+app_global_get
+app_local_put
+int 1
+return
+main_l11:
+byte "stripe_intent"
+app_global_get
+byte ""
+!=
+assert
+byte "status"
+app_global_get
+byte "preauthorized"
+==
+assert
+byte "status"
+byte "verified"
+app_global_put
+int 1
+return
+main_l12:
+int 1
+return
+main_l13:
+int 1
+return
+main_l14:
+int 0
+return
+main_l15:
+int 0
+return
+main_l16:
+int 1
+return
