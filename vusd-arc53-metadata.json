@@ -1,0 +1,10 @@
+{
+    "arc": "arc53",
+    "asset_type": "fungible",
+    "name": "Vlayer USD",
+    "image": "ipfs://bafkreigp3estjktgtrau2yei2w7rbtl5lj5uon6cv2hnlae4t37xbmo4ey",
+    "properties": {
+      "peg": "usd",
+      "manager": "MANAGER_ADDRESS"
+    }
+  }

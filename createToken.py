@@ -1,38 +1,37 @@
-from algosdk import account, mnemonic
+from algosdk import account, mnemonic, transaction
 from algosdk.v2client import algod
-from algosdk import transaction
 import os
 from dotenv import load_dotenv
+import requests
+import json
 
-# Load environment variables
 load_dotenv()
 
 def create_vusd_token():
-    """Create the VUSD token on Algorand using standard algosdk"""
+    """Create the VUSD fungible token with control roles"""
     try:
-        # Initialize Algod client
         algod_client = algod.AlgodClient(
             algod_token=os.getenv("ALGOD_TOKEN"),
             algod_address=os.getenv("ALGOD_SERVER")
         )
 
-        # Get creator account
         creator_private_key = mnemonic.to_private_key(os.getenv("CREATOR_MNEMONIC"))
         creator_address = account.address_from_private_key(creator_private_key)
-        print(f"Creator address: {creator_address}")
+        print(f"\n🔑 Creator address: {creator_address}")
 
-        # Get network suggested params
-        params = algod_client.suggested_params()
+        total_units = 1_000_000_000  # 10 million with 2 decimals
+        decimals = 2
+        unit_name = "VUSD"
+        asset_name = "Vlayer USD"
 
-        # Asset configuration
         txn = transaction.AssetCreateTxn(
             sender=creator_address,
-            sp=params,
-            total=1_000_000,  # 1 million tokens
-            decimals=2,
-            asset_name="Vlayer USD",
-            unit_name="VUSD",
-            url="https://vlayer.io",
+            sp=algod_client.suggested_params(),
+            total=total_units,
+            decimals=decimals,
+            asset_name=asset_name,
+            unit_name=unit_name,
+            url="https://vlayer.io/vusd_metadata.json",  # updated after IPFS
             manager=os.getenv("MANAGER"),
             reserve=os.getenv("RESERVE"),
             freeze=os.getenv("FREEZE"),
@@ -40,31 +39,66 @@ def create_vusd_token():
             default_frozen=False
         )
 
-        print("\nCreating VUSD token with configuration:")
-        print(f"Total Supply: 1,000,000")
-        print(f"Decimals: 2")
-        print(f"Manager: {os.getenv('MANAGER')}")
-        print(f"Reserve: {os.getenv('RESERVE')}")
-        print(f"Freeze: {os.getenv('FREEZE')}")
-        print(f"Clawback: {os.getenv('CLAWBACK')}")
-
-        # Sign and submit transaction
         signed_txn = txn.sign(creator_private_key)
         tx_id = algod_client.send_transaction(signed_txn)
-        print(f"\nSubmitted transaction ID: {tx_id}")
+        print(f"📤 Submitted TX ID: {tx_id}")
 
-        # Wait for confirmation
         confirmed_txn = transaction.wait_for_confirmation(algod_client, tx_id, 4)
-        
-        print("\nToken created successfully!")
-        print(f"Transaction ID: {tx_id}")
-        print(f"Asset ID: {confirmed_txn['asset-index']}")
+        asset_id = confirmed_txn["asset-index"]
 
-        return confirmed_txn['asset-index']
+        print(f"\n✅ VUSD Token Created!")
+        print(f"Asset ID: {asset_id}")
+        return asset_id
 
     except Exception as e:
-        print(f"\nError creating token: {str(e)}")
+        print(f"\n❌ Token creation failed: {str(e)}")
         return None
 
+def upload_metadata_to_pinata(asset_id):
+    """Upload asset metadata to IPFS via Pinata using JWT"""
+    metadata = {
+        "name": "Vlayer USD",
+        "unitName": "VUSD",
+        "description": "Stablecoin issued by Tea Protocol",
+        "image": "ipfs://bafkreigp3estjktgtrau2yei2w7rbtl5lj5uon6cv2hnlae4t37xbmo4ey",
+        "decimals": 2,
+        "assetId": asset_id,
+        "properties": {
+            "peg": "usd",
+            "issuer": "Vlayer"
+        }
+    }
+
+    try:
+        headers = {
+            "Authorization": os.getenv("PINATA_JWT"),
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(
+            "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+            json=metadata,
+            headers=headers
+        )
+
+        if response.status_code == 200:
+            ipfs_hash = response.json()["IpfsHash"]
+            ipfs_url = f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
+            print(f"\n📦 Metadata uploaded to IPFS via Pinata!")
+            print(f"IPFS CID: {ipfs_hash}")
+            print(f"✅ View JSON: {ipfs_url}")
+            return ipfs_url
+        else:
+            print(f"⚠️ Upload failed: {response.text}")
+    except Exception as e:
+        print(f"❌ Pinata upload error: {str(e)}")
+    return None
+
 if __name__ == "__main__":
-    create_vusd_token()
+    asset_id = create_vusd_token()
+    if asset_id:
+        ipfs_url = upload_metadata_to_pinata(asset_id)
+        with open(".env", "a") as f:
+            f.write(f"\nVUSD_ASSET_ID={asset_id}")
+            if ipfs_url:
+                f.write(f"\nVUSD_METADATA_URL={ipfs_url}")
