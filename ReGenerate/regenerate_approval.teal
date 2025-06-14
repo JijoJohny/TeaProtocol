@@ -1,0 +1,176 @@
+#pragma version 8
+
+// Constants
+int 0
+byte "original_asset"
+int 1
+byte "ipfs_url"
+int 2
+byte "max_remints"
+int 3
+byte "cooldown"
+
+// On creation
+txn OnCompletion
+int NoOp
+==
+bnz handle_noop
+
+// Handle NoOp
+handle_noop:
+    // Check if initialize
+    txn ApplicationArgs 0
+    byte "init"
+    ==
+    bnz handle_initialize
+
+    // Check if register
+    txn ApplicationArgs 0
+    byte "register"
+    ==
+    bnz handle_register
+
+    // Check if remint
+    txn ApplicationArgs 0
+    byte "remint"
+    ==
+    bnz handle_remint
+
+    err
+
+// Handle initialization
+handle_initialize:
+    // Check if creator
+    txn Sender
+    Global CreatorAddress
+    ==
+    bnz continue_init
+    err
+
+continue_init:
+    // Store original asset ID (already in correct format)
+    txn ApplicationArgs 1
+    app_global_put
+
+    // Store IPFS URL
+    txn ApplicationArgs 2
+    app_global_put
+
+    // Store max remints
+    txn ApplicationArgs 3
+    btoi
+    app_global_put
+
+    // Store cooldown
+    txn ApplicationArgs 4
+    btoi
+    app_global_put
+
+    int 1
+    return
+
+// Handle registration
+handle_register:
+    // Check if creator
+    txn Sender
+    Global CreatorAddress
+    ==
+    bnz continue_register
+    err
+
+continue_register:
+    // Get user address from accounts array
+    txn Accounts 1
+    store 0  // Store user address in scratch space
+
+    // Register user
+    load 0
+    byte "registered"
+    int 1
+    app_local_put
+
+    // Initialize remint count
+    load 0
+    byte "remint_count"
+    int 0
+    app_local_put
+
+    // Initialize last remint time
+    load 0
+    byte "last_remint"
+    int 0
+    app_local_put
+
+    int 1
+    return
+
+// Handle remint
+handle_remint:
+    // Get user address from accounts array
+    txn Accounts 1
+    store 0  // Store user address in scratch space
+
+    // Check if user is registered
+    load 0
+    byte "registered"
+    app_local_get
+    int 1
+    ==
+    bnz check_remint_count
+    err
+
+check_remint_count:
+    // Get remint count
+    load 0
+    byte "remint_count"
+    app_local_get
+
+    // Get max remints
+    byte "max_remints"
+    app_global_get
+
+    // Check if under max remints
+    <
+    bnz check_cooldown
+    err
+
+check_cooldown:
+    // Get current time
+    Global LatestTimestamp
+
+    // Get last remint time
+    load 0
+    byte "last_remint"
+    app_local_get
+
+    // Get cooldown period
+    byte "cooldown"
+    app_global_get
+
+    // Add cooldown to last remint time
+    +
+
+    // Check if cooldown has passed
+    >=
+    bnz update_remint
+    err
+
+update_remint:
+    // Update last remint time
+    load 0
+    byte "last_remint"
+    Global LatestTimestamp
+    app_local_put
+
+    // Increment remint count
+    load 0
+    byte "remint_count"
+    load 0
+    byte "remint_count"
+    app_local_get
+    int 1
+    +
+    app_local_put
+
+    int 1
+    return 
