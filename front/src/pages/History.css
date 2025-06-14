@@ -1,0 +1,109 @@
+.history-page {
+  padding: 2rem 0;
+}
+
+.history-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.history-header h1 {
+  font-size: 2rem;
+  color: var(--text-color);
+  margin-bottom: 0.5rem;
+}
+
+.history-header p {
+  color: #64748b;
+}
+
+.history-table-container {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th,
+.history-table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-table th {
+  background-color: #f8fafc;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.history-table tr:last-child td {
+  border-bottom: none;
+}
+
+.transaction-type {
+  font-weight: 500;
+}
+
+.transaction-type.borrow {
+  color: var(--primary-color);
+}
+
+.transaction-type.repay {
+  color: var(--success-color);
+}
+
+.amount {
+  font-family: monospace;
+  font-weight: 500;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.status-success {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.status-warning {
+  background-color: var(--warning-color);
+  color: white;
+}
+
+.status-error {
+  background-color: var(--error-color);
+  color: white;
+}
+
+.no-transactions {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+@media (max-width: 768px) {
+  .history-page {
+    padding: 1rem;
+  }
+
+  .history-table th,
+  .history-table td {
+    padding: 0.75rem;
+  }
+
+  .history-table {
+    font-size: 0.875rem;
+  }
+} 

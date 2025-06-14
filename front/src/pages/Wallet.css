@@ -1,0 +1,121 @@
+.wallet-page {
+  padding: 2rem 0;
+}
+
+.wallet-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.wallet-header h1 {
+  font-size: 2rem;
+  color: var(--text-color);
+  margin-bottom: 0.5rem;
+}
+
+.wallet-header p {
+  color: #64748b;
+}
+
+.wallet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.wallet-card {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.balance-info h2 {
+  font-size: 1.25rem;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+
+.balance-amount {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: var(--text-color);
+  margin-bottom: 0.5rem;
+}
+
+.balance-change {
+  color: var(--success-color);
+  font-size: 0.875rem;
+}
+
+.change-arrow {
+  margin-right: 0.25rem;
+}
+
+.status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-label {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.status-value {
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.status-badge.active {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.status-badge.frozen {
+  background-color: var(--error-color);
+  color: white;
+}
+
+.wallet-note {
+  background-color: #eff6ff;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #bfdbfe;
+}
+
+.wallet-note p {
+  color: #1e40af;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .wallet-page {
+    padding: 1rem;
+  }
+
+  .wallet-card {
+    padding: 1.5rem;
+  }
+
+  .balance-amount {
+    font-size: 2rem;
+  }
+} 

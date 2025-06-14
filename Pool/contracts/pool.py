@@ -1,147 +1,183 @@
-from pyteal import *
+from algosdk import account, encoding
+from algosdk.v2client import algod
+from algosdk import transaction
+from algosdk.abi import Contract
+import json
+import os
+import base64
 
-def approval_program():
-    # Global state keys
-    total_supply_key = Bytes("total_supply")
-    pool_balance_key = Bytes("pool_balance")
-    collateral_factor_key = Bytes("collateral_factor")  # 75% in basis points
-    liquidation_bonus_key = Bytes("liquidation_bonus")  # 5% bonus
-    liquidation_threshold_key = Bytes("liquidation_threshold")  # 80% in basis points
-    
-    # Local state keys
-    user_balance_key = Bytes("user_balance")
-    user_borrows_key = Bytes("user_borrows")
-    user_collateral_key = Bytes("user_collateral")
-
-    # Operations
-    deposit = Bytes("deposit")
-    borrow = Bytes("borrow")
-    repay = Bytes("repay")
-    withdraw = Bytes("withdraw")
-    liquidate = Bytes("liquidate")
-
-    # Constants
-    COLLATERAL_FACTOR = Int(7500)  # 75%
-    LIQUIDATION_BONUS = Int(10500)  # 5% bonus
-    LIQUIDATION_THRESHOLD = Int(8000)  # 80%
-
-    def initialize():
-        return Seq([
-            App.globalPut(total_supply_key, Int(0)),
-            App.globalPut(pool_balance_key, Int(0)),
-            App.globalPut(collateral_factor_key, COLLATERAL_FACTOR),
-            App.globalPut(liquidation_bonus_key, LIQUIDATION_BONUS),
-            App.globalPut(liquidation_threshold_key, LIQUIDATION_THRESHOLD),
-            Return(Int(1))
-        ])
-
-    def handle_deposit():
-        amount = Btoi(Txn.application_args[1])
-        return Seq([
-            # Update pool balance
-            App.globalPut(pool_balance_key, App.globalGet(pool_balance_key) + amount),
-            # Update user balance
-            App.localPut(Txn.sender(), user_balance_key, 
-                App.localGet(Txn.sender(), user_balance_key) + amount),
-            Return(Int(1))
-        ])
-
-    def handle_borrow():
-        amount = Btoi(Txn.application_args[1])
-        return Seq([
-            # Check if pool has enough balance
-            Assert(App.globalGet(pool_balance_key) >= amount),
-            # Check collateral factor
-            Assert(App.localGet(Txn.sender(), user_collateral_key) * 
-                App.globalGet(collateral_factor_key) / Int(10000) >= amount),
-            # Update pool balance
-            App.globalPut(pool_balance_key, App.globalGet(pool_balance_key) - amount),
-            # Update user borrows
-            App.localPut(Txn.sender(), user_borrows_key, 
-                App.localGet(Txn.sender(), user_borrows_key) + amount),
-            Return(Int(1))
-        ])
-
-    def handle_repay():
-        amount = Btoi(Txn.application_args[1])
-        return Seq([
-            # Check if user has enough borrows
-            Assert(App.localGet(Txn.sender(), user_borrows_key) >= amount),
-            # Update pool balance
-            App.globalPut(pool_balance_key, App.globalGet(pool_balance_key) + amount),
-            # Update user borrows
-            App.localPut(Txn.sender(), user_borrows_key, 
-                App.localGet(Txn.sender(), user_borrows_key) - amount),
-            Return(Int(1))
-        ])
-
-    def handle_withdraw():
-        amount = Btoi(Txn.application_args[1])
-        return Seq([
-            # Check if user has enough balance
-            Assert(App.localGet(Txn.sender(), user_balance_key) >= amount),
-            # Check collateral factor after withdrawal
-            Assert((App.localGet(Txn.sender(), user_balance_key) - amount) * 
-                App.globalGet(collateral_factor_key) / Int(10000) >= 
-                App.localGet(Txn.sender(), user_borrows_key)),
-            # Update pool balance
-            App.globalPut(pool_balance_key, App.globalGet(pool_balance_key) - amount),
-            # Update user balance
-            App.localPut(Txn.sender(), user_balance_key, 
-                App.localGet(Txn.sender(), user_balance_key) - amount),
-            Return(Int(1))
-        ])
-
-    def handle_liquidate():
-        liquidatee = Txn.accounts[1]
-        amount = Btoi(Txn.application_args[1])
-        return Seq([
-            # Check if liquidatee is undercollateralized
-            Assert(App.localGet(liquidatee, user_balance_key) * 
-                App.globalGet(collateral_factor_key) / Int(10000) < 
-                App.localGet(liquidatee, user_borrows_key)),
-            # Check if liquidator has enough balance
-            Assert(App.localGet(Txn.sender(), user_balance_key) >= amount),
-            # Calculate liquidation bonus
-            bonus = amount * App.globalGet(liquidation_bonus_key) / Int(10000),
-            # Update balances
-            App.localPut(Txn.sender(), user_balance_key, 
-                App.localGet(Txn.sender(), user_balance_key) - amount),
-            App.localPut(liquidatee, user_borrows_key, 
-                App.localGet(liquidatee, user_borrows_key) - amount),
-            App.localPut(liquidatee, user_balance_key, 
-                App.localGet(liquidatee, user_balance_key) - bonus),
-            App.localPut(Txn.sender(), user_balance_key, 
-                App.localGet(Txn.sender(), user_balance_key) + bonus),
-            Return(Int(1))
-        ])
-
-    # Main program logic
-    program = Cond(
-        [Txn.application_id() == Int(0), initialize()],
-        [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],
-        [Txn.on_completion() == OnComplete.UpdateApplication, Return(Int(0))],
-        [Txn.on_completion() == OnComplete.CloseOut, Return(Int(1))],
-        [Txn.on_completion() == OnComplete.OptIn, Return(Int(1))],
+class LiquidityPool:
+    def __init__(self, algod_client):
+        self.algod_client = algod_client
+        self.app_id = None
+        self.contract = None
         
-        # Handle application calls
-        [Txn.application_args[0] == deposit, handle_deposit()],
-        [Txn.application_args[0] == borrow, handle_borrow()],
-        [Txn.application_args[0] == repay, handle_repay()],
-        [Txn.application_args[0] == withdraw, handle_withdraw()],
-        [Txn.application_args[0] == liquidate, handle_liquidate()]
-    )
+        # State variables
+        self.total_supply = 0
+        self.pool_balance = 0
+        self.collateral_factor = 7500  # 75% in basis points
+        self.liquidation_bonus = 10500  # 5% bonus (105%)
+        self.liquidation_threshold = 8000  # 80%
+        self.supported_assets = []
+        
+        # User state tracking (in a real implementation, this would be on-chain)
+        self.user_balances = {}
+        self.user_borrows = {}
+        self.user_collateral = {}
 
-    return program
+    def deploy_contract(self, creator_private_key):
+        """Deploy the smart contract"""
+        creator_address = account.address_from_private_key(creator_private_key)
+        
+        # Create application transaction
+        txn = transaction.ApplicationCreateTxn(
+            sender=creator_address,
+            sp=self.algod_client.suggested_params(),
+            on_complete=transaction.OnComplete.NoOpOC,
+            approval_program=self.compile_program("pool_approval.teal"),
+            clear_program=self.compile_program("pool_clear.teal"),
+            global_schema=transaction.StateSchema(4, 3),  # 4 byteslice, 3 uint
+            local_schema=transaction.StateSchema(2, 2)    # 2 byteslice, 2 uint
+        )
+        
+        signed_txn = txn.sign(creator_private_key)
+        tx_id = self.algod_client.send_transaction(signed_txn)
+        result = transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
+        
+        self.app_id = result['application-index']
+        print(f"Contract deployed with app ID: {self.app_id}")
+        return self.app_id
 
-def clear_state_program():
-    return Return(Int(1))
+    def compile_program(self, source_path):
+        """Compile TEAL program"""
+        # Get the directory of the current file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Construct the full path to the TEAL file
+        teal_path = os.path.join(current_dir, source_path)
+        with open(teal_path, "r") as f:
+            teal_source = f.read()
+        compile_response = self.algod_client.compile(teal_source)
+        return base64.b64decode(compile_response['result'])
 
+    def initialize(self, sender_private_key):
+        """Initialize contract state"""
+        txn = transaction.ApplicationCallTxn(
+            sender=account.address_from_private_key(sender_private_key),
+            sp=self.algod_client.suggested_params(),
+            index=self.app_id,
+            on_complete=transaction.OnComplete.NoOpOC,
+            app_args=["initialize"]
+        )
+        signed_txn = txn.sign(sender_private_key)
+        tx_id = self.algod_client.send_transaction(signed_txn)
+        return transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
+
+    def deposit(self, sender_private_key, amount):
+        """Deposit assets into the pool"""
+        sender_address = account.address_from_private_key(sender_private_key)
+        
+        # In a real implementation, you'd transfer assets first
+        txn = transaction.ApplicationCallTxn(
+            sender=sender_address,
+            sp=self.algod_client.suggested_params(),
+            index=self.app_id,
+            on_complete=transaction.OnComplete.NoOpOC,
+            app_args=["deposit", amount]
+        )
+        signed_txn = txn.sign(sender_private_key)
+        tx_id = self.algod_client.send_transaction(signed_txn)
+        result = transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
+        
+        # Update local state tracking
+        self.pool_balance += amount
+        self.user_balances[sender_address] = self.user_balances.get(sender_address, 0) + amount
+        return result
+
+    def borrow(self, sender_private_key, amount):
+        """Borrow assets from the pool"""
+        sender_address = account.address_from_private_key(sender_private_key)
+        
+        # Check collateral (simplified)
+        collateral_value = self.user_collateral.get(sender_address, 0) * self.collateral_factor / 10000
+        if collateral_value < amount:
+            raise ValueError("Insufficient collateral")
+            
+        txn = transaction.ApplicationCallTxn(
+            sender=sender_address,
+            sp=self.algod_client.suggested_params(),
+            index=self.app_id,
+            on_complete=transaction.OnComplete.NoOpOC,
+            app_args=["borrow", amount]
+        )
+        signed_txn = txn.sign(sender_private_key)
+        tx_id = self.algod_client.send_transaction(signed_txn)
+        result = transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
+        
+        # Update local state tracking
+        self.pool_balance -= amount
+        self.user_borrows[sender_address] = self.user_borrows.get(sender_address, 0) + amount
+        return result
+
+    def liquidate(self, liquidator_private_key, liquidatee_address, amount):
+        """Liquidate undercollateralized position"""
+        liquidator_address = account.address_from_private_key(liquidator_private_key)
+        
+        # Check if liquidatee is undercollateralized (simplified)
+        collateral_value = self.user_collateral.get(liquidatee_address, 0) * self.collateral_factor / 10000
+        if collateral_value >= self.user_borrows.get(liquidatee_address, 0):
+            raise ValueError("Account is not undercollateralized")
+            
+        txn = transaction.ApplicationCallTxn(
+            sender=liquidator_address,
+            sp=self.algod_client.suggested_params(),
+            index=self.app_id,
+            on_complete=transaction.OnComplete.NoOpOC,
+            app_args=["liquidate", amount],
+            accounts=[liquidatee_address]
+        )
+        signed_txn = txn.sign(liquidator_private_key)
+        tx_id = self.algod_client.send_transaction(signed_txn)
+        result = transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
+        
+        # Update local state tracking
+        bonus = amount * (self.liquidation_bonus - 10000) / 10000
+        self.user_balances[liquidator_address] -= amount
+        self.user_borrows[liquidatee_address] -= amount
+        self.user_balances[liquidator_address] += bonus
+        self.user_balances[liquidatee_address] -= bonus
+        
+        return result
+
+# Example usage
 if __name__ == "__main__":
-    with open("pool_approval.teal", "w") as f:
-        compiled = compileTeal(approval_program(), mode=Mode.Application, version=6)
-        f.write(compiled)
-
-    with open("pool_clear.teal", "w") as f:
-        compiled = compileTeal(clear_state_program(), mode=Mode.Application, version=6)
-        f.write(compiled) 
+    # Initialize client
+    algod_address = "https://testnet-api.algonode.cloud"
+    algod_token = ""
+    algod_client = algod.AlgodClient(algod_token, algod_address)
+    
+    # Create pool instance
+    pool = LiquidityPool(algod_client)
+    
+    # Generate test accounts
+    creator_private_key, creator_address = account.generate_account()
+    user_private_key, user_address = account.generate_account()
+    
+    # Fund accounts (in testnet)
+    print("Fund these accounts in TestNet Dispenser:")
+    print(f"Creator: {creator_address}")
+    print(f"User: {user_address}")
+    input("Press Enter after funding accounts...")
+    
+    # Deploy contract
+    app_id = pool.deploy_contract(creator_private_key)
+    
+    # Initialize contract
+    pool.initialize(creator_private_key)
+    
+    # Example deposit
+    pool.deposit(user_private_key, 1000000)  # 1 ALGO
+    print(f"User balance: {pool.user_balances.get(user_address, 0)}")
+    
+    # Example borrow (would need collateral first in real implementation)
+    # pool.add_collateral(user_private_key, 2000000)  # 2 ALGO collateral
+    # pool.borrow(user_private_key, 1000000)  # 1 ALGO
